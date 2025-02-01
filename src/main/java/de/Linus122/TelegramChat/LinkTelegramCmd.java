@@ -21,7 +21,7 @@ public class LinkTelegramCmd implements CommandExecutor {
 		if (TelegramChat.getBackend() == null) {
 			TelegramChat.initBackend();
 		}
-		if (TelegramChat.telegramHook.authJson == null) {
+		if (TelegramChat.telegramHook.tgUsername.isEmpty()) {
 			cs.sendMessage(Utils.formatMSG("need-to-add-bot-first")[0]);
 			return true;
 		}
@@ -29,8 +29,8 @@ public class LinkTelegramCmd implements CommandExecutor {
 		String token = TelegramChat.generateLinkToken();
 		TelegramChat.getBackend().addLinkCode(token, ((Player) cs).getUniqueId());
 		cs.sendMessage(Utils.formatMSG("get-token",
-				TelegramChat.telegramHook.authJson.getAsJsonObject("result").get("username").getAsString(),
-				TelegramChat.telegramHook.authJson.getAsJsonObject("result").get("username").getAsString(), token));
+				TelegramChat.telegramHook.tgUsername,
+				TelegramChat.telegramHook.tgUsername, token));
 
 		return true;
 	}

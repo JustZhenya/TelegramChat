@@ -3,7 +3,7 @@ package de.Linus122.TelegramComponents;
 public class Message {
 	private int message_id;
 	private User from;
-	private int date;
+	private long date;
 	private Chat chat;
 	private String text;
 
@@ -23,11 +23,11 @@ public class Message {
 		this.from = from;
 	}
 
-	public int getDate() {
+	public long getDate() {
 		return date;
 	}
 
-	public void setDate(int date) {
+	public void setDate(long date) {
 		this.date = date;
 	}
 

@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
 
@@ -40,12 +41,16 @@ import de.Linus122.TelegramComponents.ChatMessageToTelegram;
 
 public class TelegramChat extends JavaPlugin implements Listener {
 	private static File datad = new File("plugins/TelegramChat/data.json");
+
+	public static Object mutex = new Object();
 	private static FileConfiguration cfg;
 
 	private static Data data = new Data();
 	public static Telegram telegramHook;
 	private static TelegramChat instance;
 	private static boolean isSuperVanish;
+	private Thread longpollThread;
+	public AtomicBoolean isRunning = new AtomicBoolean(true);
 
 	@Override
 	public void onEnable() {
@@ -80,19 +85,7 @@ public class TelegramChat extends JavaPlugin implements Listener {
 				
 				fileReader.close();
 			} catch (Exception e) {
-				// old method for loading the data.yml file
-				try {
-					FileInputStream fin = new FileInputStream(datad);
-					ObjectInputStream ois = new ObjectInputStream(fin);
-					
-					data = (Data) gson.fromJson((String) ois.readObject(), Data.class);
-					ois.close();
-					fin.close();
-				} catch (Exception e2) {
-					e2.printStackTrace();
-				}
-				this.getLogger().log(Level.INFO, "Converted old data.yml");
-				save();
+				this.getLogger().log(Level.WARNING, "Can't open data.json: " + e.getMessage());
 			}
 		}
 
@@ -105,17 +98,39 @@ public class TelegramChat extends JavaPlugin implements Listener {
 		// Console sender handler, allows players to send console commands (telegram.console permission)
 		// telegramHook.addListener(new CommandHandler(telegramHook, this));
 
-		Bukkit.getScheduler().runTaskTimerAsynchronously(this, () -> {
-			boolean connectionLost = false;
-			if (connectionLost) {
-				boolean success = telegramHook.reconnect();
-				if (success)
-					connectionLost = false;
+		longpollThread = new Thread(new Runnable() {
+			public void run() {
+				while(isRunning.get())
+				{
+					if(TelegramChat.telegramHook.tgUsername.isEmpty())
+					{
+						try {
+							Thread.sleep(5000);
+						} catch (InterruptedException e2) {
+							// do not care
+						}
+						continue;
+					}
+
+					try
+					{
+						telegramHook.handleUpdates();
+					}
+					catch (Exception e)
+					{
+						TelegramChat.getInstance().getLogger().log(Level.WARNING, "handleUpdates() failed: " + e.getMessage());
+
+						try {
+							Thread.sleep(5000);
+						} catch (InterruptedException e2) {
+							// do not care
+						}
+					}
+				}
 			}
-			if (telegramHook.connected) {
-				connectionLost = !telegramHook.getUpdate();
-			}
-		}, 0L, 10L);
+		});
+
+		longpollThread.start();
 		
 		// metrics
 		Bukkit.getScheduler().runTaskAsynchronously(this, () -> new Metrics(this));
@@ -124,6 +139,14 @@ public class TelegramChat extends JavaPlugin implements Listener {
 	@Override
 	public void onDisable() {
 		save();
+		isRunning.set(false);
+		try {
+			this.getLogger().info("Waiting to longpollThread to finish...");
+			longpollThread.join();
+		} catch (InterruptedException e) {
+			// do not care
+		}
+		this.getLogger().info("longpollThread has finished");
 	}
 
 	public static void save() {
@@ -154,15 +177,18 @@ public class TelegramChat extends JavaPlugin implements Listener {
 
 	private static void sendToMC(UUID uuid, String msg, long sender_chat) {
 		OfflinePlayer op = Bukkit.getOfflinePlayer(uuid);
-		List<Long> recievers = new ArrayList<Long>();
-		recievers.addAll(TelegramChat.data.chat_ids);
-		recievers.remove((Object) sender_chat);
 		String msgF = Utils.formatMSG("general-message-to-mc", op.getName(), msg)[0];
+
+		Bukkit.broadcastMessage(msgF.replace("&", "§"));
+
+		List<Long> recievers = new ArrayList<Long>();
+		synchronized (TelegramChat.mutex) {
+			recievers.addAll(TelegramChat.data.chat_ids);
+		}
+		recievers.remove((Long) sender_chat);
 		for (long id : recievers) {
 			telegramHook.sendMsg(id, msgF.replaceAll("§.", ""));
 		}
-		Bukkit.broadcastMessage(msgF.replace("&", "§"));
-
 	}
 
 	public static void link(UUID player, long userID) {
@@ -207,7 +233,7 @@ public class TelegramChat extends JavaPlugin implements Listener {
 		if(isSuperVanish && VanishAPI.isInvisible(e.getPlayer()))
 			return;
 
-		if (telegramHook.connected) {
+		if(!telegramHook.tgUsername.isEmpty()) {
 			ChatMessageToTelegram chat = new ChatMessageToTelegram();
 			chat.parse_mode = "Markdown";
 			chat.text = Utils.formatMSG("join-message", e.getPlayer().getName())[0];
@@ -219,7 +245,8 @@ public class TelegramChat extends JavaPlugin implements Listener {
 	public void onDeath(PlayerDeathEvent e) {
 		if (!this.getConfig().getBoolean("enable-deathmessages"))
 			return;
-		if (telegramHook.connected) {
+
+		if(!telegramHook.tgUsername.isEmpty()) {
 			ChatMessageToTelegram chat = new ChatMessageToTelegram();
 			chat.parse_mode = "Markdown";
 			chat.text = Utils.formatMSG("death-message", e.getDeathMessage())[0];
@@ -245,7 +272,7 @@ public class TelegramChat extends JavaPlugin implements Listener {
                 .map(str -> str.trim()) // remove white-spaces
                 .collect(Collectors.toList()); // collect to List
 		
-		if (telegramHook.connected && advancementTypes.contains(type)) {
+		if (!telegramHook.tgUsername.isEmpty() && advancementTypes.contains(type)) {
 			
 			String toDisplay = e.getAdvancement().getKey().getKey()
 					.replace(type + "/", "")
@@ -272,7 +299,7 @@ public class TelegramChat extends JavaPlugin implements Listener {
 		if(isSuperVanish && VanishAPI.isInvisible(e.getPlayer()))
 			return;
 
-		if (telegramHook.connected) {
+		if(!telegramHook.tgUsername.isEmpty()) {
 			ChatMessageToTelegram chat = new ChatMessageToTelegram();
 			chat.parse_mode = "Markdown";
 			chat.text = Utils.formatMSG("quit-message", e.getPlayer().getName())[0];
@@ -286,7 +313,7 @@ public class TelegramChat extends JavaPlugin implements Listener {
 			return;
 		if (e.isCancelled())
 			return;
-		if (telegramHook.connected) {
+		if(!telegramHook.tgUsername.isEmpty()) {
 			ChatMessageToTelegram chat = new ChatMessageToTelegram();
 			chat.parse_mode = "Markdown";
 			chat.text = Utils
@@ -300,5 +327,4 @@ public class TelegramChat extends JavaPlugin implements Listener {
 	{
 		return instance;
 	}
-
 }

@@ -1,8 +1,6 @@
 package de.Linus122.TelegramChat;
-
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
+import java.util.TreeSet;
 import java.util.UUID;
 
 public class Data {
@@ -14,7 +12,7 @@ public class Data {
 	// Token : Player ID
 	private HashMap<String, UUID> linkCodes = new HashMap<String, UUID>();
 	
-	public List<Long> chat_ids = new ArrayList<Long>();
+	public TreeSet<Long> chat_ids = new TreeSet<Long>();
 	
 	private boolean firstUse = true;
 	
@@ -44,12 +42,14 @@ public class Data {
 		this.linkCodes = linkCodes;
 	}
 
-	public List<Long> getIds() {
+	public TreeSet<Long> getIds() {
 		return chat_ids;
 	}
 
-	public void setIds(List<Long> ids) {
-		this.chat_ids = ids;
+	public void setIds(TreeSet<Long> ids) {
+		synchronized (TelegramChat.mutex) {
+			this.chat_ids = ids;
+		}
 	}
 
 	public boolean isFirstUse() {
